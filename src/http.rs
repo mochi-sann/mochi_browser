@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HttpResponse {
     pub status: u16,
     pub headers: Vec<(String, String)>,
@@ -9,15 +9,21 @@ pub struct HttpResponse {
 
 #[cfg(not(target_arch = "wasm32"))]
 mod fetch {
-    use super::*;
+    use super::HttpResponse;
 
+    /// Fetches a URL and returns the HTTP response.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails, the response body cannot be read,
+    /// or header values are not valid UTF-8.
     pub fn fetch_url(url: &str) -> Result<HttpResponse, Box<dyn std::error::Error>> {
         let response = reqwest::blocking::get(url)?;
         let status = response.status().as_u16();
         let headers = response
             .headers()
             .iter()
-            .map(|(name, value)| (name.to_string(), value.to_str().unwrap_or("").to_string()))
+            .map(|(name, value)| (name.to_string(), value.to_str().unwrap_or("").to_owned()))
             .collect();
         let body = response.text()?;
         Ok(HttpResponse {
