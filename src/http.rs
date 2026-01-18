@@ -11,6 +11,12 @@ pub struct HttpResponse {
 mod fetch {
     use super::HttpResponse;
 
+    /// Fetches a URL and returns the HTTP response.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails, the response body cannot be read,
+    /// or header values are not valid UTF-8.
     pub fn fetch_url(url: &str) -> Result<HttpResponse, Box<dyn std::error::Error>> {
         let response = reqwest::blocking::get(url)?;
         let status = response.status().as_u16();

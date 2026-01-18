@@ -119,13 +119,13 @@ impl<'a> HtmlTokenizer<'a> {
 
         if self.peek(0) == Some('<') {
             self.advance();
-            return self.parse_tag();
+            return Some(self.parse_tag());
         }
 
         self.parse_text()
     }
 
-    fn parse_tag(&mut self) -> Option<Result<HtmlToken, TokenizeError>> {
+    fn parse_tag(&mut self) -> Result<HtmlToken, TokenizeError> {
         if self.peek(0) == Some('!') {
             self.advance();
             return self.parse_special_tag();
@@ -139,34 +139,38 @@ impl<'a> HtmlTokenizer<'a> {
         self.parse_start_tag()
     }
 
-    fn parse_special_tag(&mut self) -> Option<Result<HtmlToken, TokenizeError>> {
+    fn parse_special_tag(&mut self) -> Result<HtmlToken, TokenizeError> {
         if self.peek(0) == Some('-') {
             if self.peek(1) == Some('-') {
                 self.advance_n(2);
                 self.parse_comment()
             } else {
-                Some(Err(TokenizeError::MalformedComment))
+                Err(TokenizeError::MalformedComment)
             }
         } else {
             self.parse_doctype()
         }
     }
 
-    fn parse_doctype(&mut self) -> Option<Result<HtmlToken, TokenizeError>> {
+    fn parse_doctype(&mut self) -> Result<HtmlToken, TokenizeError> {
         let mut doctype = String::new();
 
         while let Some(c) = self.peek(0) {
             if c == '>' {
                 self.advance();
-                return Some(Ok(HtmlToken::Doctype(doctype)));
+                return Ok(HtmlToken::Doctype(doctype));
             }
-            doctype.push(self.advance().unwrap());
+            if let Some(ch) = self.advance() {
+                doctype.push(ch);
+            } else {
+                return Err(TokenizeError::UnexpectedEOF);
+            }
         }
 
-        Some(Err(TokenizeError::UnexpectedEOF))
+        Err(TokenizeError::UnexpectedEOF)
     }
 
-    fn parse_comment(&mut self) -> Option<Result<HtmlToken, TokenizeError>> {
+    fn parse_comment(&mut self) -> Result<HtmlToken, TokenizeError> {
         let mut comment = String::new();
         let mut prev_dash_count = 0;
 
@@ -177,7 +181,7 @@ impl<'a> HtmlTokenizer<'a> {
                         let new_len = comment.len().saturating_sub(2);
                         comment.truncate(new_len);
                     }
-                    return Some(Ok(HtmlToken::Comment(comment)));
+                    return Ok(HtmlToken::Comment(comment));
                 }
                 comment.push(c);
                 if c == '-' {
@@ -186,24 +190,19 @@ impl<'a> HtmlTokenizer<'a> {
                     prev_dash_count = 0;
                 }
             } else {
-                return Some(Err(TokenizeError::MalformedComment));
+                return Err(TokenizeError::MalformedComment);
             }
         }
     }
 
-    fn parse_start_tag(&mut self) -> Option<Result<HtmlToken, TokenizeError>> {
-        let name = match self.parse_tag_name() {
-            Some(n) => n,
-            None => return Some(Err(TokenizeError::InvalidTag)),
+    fn parse_start_tag(&mut self) -> Result<HtmlToken, TokenizeError> {
+        let Some(name) = self.parse_tag_name() else {
+            return Err(TokenizeError::InvalidTag);
         };
 
         self.skip_whitespace();
 
-        let attributes = match self.parse_attributes() {
-            Some(Ok(attrs)) => attrs,
-            Some(Err(e)) => return Some(Err(e)),
-            None => Vec::new(),
-        };
+        let attributes = self.parse_attributes()?;
 
         self.skip_whitespace();
 
@@ -213,35 +212,34 @@ impl<'a> HtmlTokenizer<'a> {
                 self.advance();
                 true
             } else {
-                return Some(Err(TokenizeError::InvalidTag));
+                return Err(TokenizeError::InvalidTag);
             }
         } else if self.peek(0) == Some('>') {
             self.advance();
             false
         } else {
-            return Some(Err(TokenizeError::InvalidTag));
+            return Err(TokenizeError::InvalidTag);
         };
 
-        Some(Ok(HtmlToken::StartTag {
+        Ok(HtmlToken::StartTag {
             name,
             attributes,
             self_closing,
-        }))
+        })
     }
 
-    fn parse_end_tag(&mut self) -> Option<Result<HtmlToken, TokenizeError>> {
-        let name = match self.parse_tag_name() {
-            Some(n) => n,
-            None => return Some(Err(TokenizeError::InvalidTag)),
+    fn parse_end_tag(&mut self) -> Result<HtmlToken, TokenizeError> {
+        let Some(name) = self.parse_tag_name() else {
+            return Err(TokenizeError::InvalidTag);
         };
 
         self.skip_whitespace();
 
         if self.peek(0) == Some('>') {
             self.advance();
-            Some(Ok(HtmlToken::EndTag { name }))
+            Ok(HtmlToken::EndTag { name })
         } else {
-            Some(Err(TokenizeError::InvalidTag))
+            Err(TokenizeError::InvalidTag)
         }
     }
 
@@ -252,7 +250,11 @@ impl<'a> HtmlTokenizer<'a> {
             if c.is_whitespace() || c == '>' || c == '/' {
                 break;
             }
-            name.push(self.advance().unwrap());
+            if let Some(ch) = self.advance() {
+                name.push(ch);
+            } else {
+                break;
+            }
         }
 
         if name.is_empty() { None } else { Some(name) }
@@ -265,7 +267,11 @@ impl<'a> HtmlTokenizer<'a> {
             if c == '<' {
                 break;
             }
-            text.push(self.advance().unwrap());
+            if let Some(ch) = self.advance() {
+                text.push(ch);
+            } else {
+                break;
+            }
         }
 
         if text.is_empty() {
@@ -275,7 +281,7 @@ impl<'a> HtmlTokenizer<'a> {
         }
     }
 
-    fn parse_attributes(&mut self) -> Option<Result<Vec<(String, String)>, TokenizeError>> {
+    fn parse_attributes(&mut self) -> Result<Vec<(String, String)>, TokenizeError> {
         let mut attributes = Vec::new();
 
         loop {
@@ -291,12 +297,12 @@ impl<'a> HtmlTokenizer<'a> {
 
             match self.parse_attribute() {
                 Some(Ok(attr)) => attributes.push(attr),
-                Some(Err(e)) => return Some(Err(e)),
+                Some(Err(e)) => return Err(e),
                 None => break,
             }
         }
 
-        Some(Ok(attributes))
+        Ok(attributes)
     }
 
     fn parse_attribute(&mut self) -> Option<Result<(String, String), TokenizeError>> {
@@ -309,9 +315,8 @@ impl<'a> HtmlTokenizer<'a> {
             self.skip_whitespace();
 
             match self.parse_attribute_value() {
-                Some(Ok(value)) => Some(Ok((name, value))),
-                Some(Err(e)) => Some(Err(e)),
-                None => Some(Err(TokenizeError::InvalidAttribute)),
+                Ok(value) => Some(Ok((name, value))),
+                Err(e) => Some(Err(e)),
             }
         } else {
             Some(Ok((name, String::new())))
@@ -325,40 +330,61 @@ impl<'a> HtmlTokenizer<'a> {
             if c.is_whitespace() || c == '=' || c == '>' || c == '/' {
                 break;
             }
-            name.push(self.advance().unwrap());
+            if let Some(ch) = self.advance() {
+                name.push(ch);
+            } else {
+                break;
+            }
         }
 
         if name.is_empty() { None } else { Some(name) }
     }
 
-    fn parse_attribute_value(&mut self) -> Option<Result<String, TokenizeError>> {
+    fn parse_attribute_value(&mut self) -> Result<String, TokenizeError> {
         let quote = match self.peek(0) {
-            Some('"' | '\'') => {
-                let q = self.advance().unwrap();
-                Some(q)
-            }
+            Some('"' | '\'') => match self.advance() {
+                Some(q) => Some(q),
+                None => return Err(TokenizeError::InvalidAttribute),
+            },
             _ => None,
         };
 
         let mut value = String::new();
 
         if let Some(quote) = quote {
-            while let Some(c) = self.advance() {
-                if c == quote {
-                    return Some(Ok(value));
+            loop {
+                match self.advance() {
+                    Some(c) => {
+                        if c == quote {
+                            return Ok(value);
+                        }
+                        value.push(c);
+                    }
+                    None => return Err(TokenizeError::InvalidAttribute),
                 }
-                value.push(c);
             }
-            Some(Err(TokenizeError::InvalidAttribute))
         } else {
             while let Some(c) = self.peek(0) {
                 if c.is_whitespace() || c == '>' || c == '/' {
                     break;
                 }
-                value.push(self.advance().unwrap());
+                if let Some(ch) = self.advance() {
+                    value.push(ch);
+                } else {
+                    return Err(TokenizeError::InvalidAttribute);
+                }
             }
-            Some(Ok(value))
+            Ok(value)
         }
+    }
+}
+
+impl<'a> IntoIterator for &'a HtmlTokenizer<'a> {
+    type Item = Result<HtmlToken, TokenizeError>;
+    type IntoIter = HtmlTokenizerIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
 
