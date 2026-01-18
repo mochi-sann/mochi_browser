@@ -1,3 +1,11 @@
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::JsCast;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_futures::JsFuture;
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::mpsc;
+
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
@@ -7,6 +15,14 @@ pub struct TemplateApp {
 
     #[serde(skip)] // This how you opt-out of serialization of a field
     value: f32,
+
+    url_input: String,
+    response_body: String,
+    loading: bool,
+
+    #[serde(skip)]
+    #[cfg(not(target_arch = "wasm32"))]
+    receiver: Option<mpsc::Receiver<Result<String, String>>>,
 }
 
 impl Default for TemplateApp {
@@ -15,6 +31,13 @@ impl Default for TemplateApp {
             // Example stuff:
             label: "Hello World!".to_owned(),
             value: 2.7,
+            url_input: String::new(),
+            response_body: String::new(),
+            loading: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            receiver: None,
+            #[cfg(target_arch = "wasm32")]
+            loading_wasm: false,
         }
     }
 }
@@ -43,6 +66,18 @@ impl eframe::App for TemplateApp {
 
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(receiver) = &self.receiver {
+            if let Ok(result) = receiver.try_recv() {
+                self.loading = false;
+                self.receiver = None;
+                match result {
+                    Ok(body) => self.response_body = body,
+                    Err(e) => self.response_body = format!("Error: {}", e),
+                }
+            }
+        }
+
         // Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
         // For inspiration and more examples, go to https://emilk.github.io/egui
 
@@ -66,17 +101,47 @@ impl eframe::App for TemplateApp {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            // The central panel the region left after adding TopPanel's and SidePanel's
-            ui.heading("eframe template");
+            ui.heading("URL Fetcher");
 
             ui.horizontal(|ui| {
-                ui.label("Write something: ");
-                ui.text_edit_singleline(&mut self.label);
+                ui.label("URL: ");
+                ui.text_edit_singleline(&mut self.url_input);
+                if ui.button("Fetch").clicked() && !self.loading {
+                    self.loading = true;
+                    self.response_body.clear();
+                    let url = self.url_input.clone();
+
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        let (sender, receiver) = mpsc::channel();
+                        self.receiver = Some(receiver);
+
+                        std::thread::spawn(move || {
+                            let result = fetch_url(&url).map_err(|e| e.to_string());
+                            sender.send(result).ok();
+                        });
+                    }
+
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        self.response_body = "WASM fetch not implemented yet".to_string();
+                        self.loading = false;
+                    }
+                }
             });
 
-            ui.add(egui::Slider::new(&mut self.value, 0.0..=10.0).text("value"));
-            if ui.button("Increment").clicked() {
-                self.value += 1.0;
+            if self.loading {
+                ui.spinner();
+            }
+
+            if !self.response_body.is_empty() {
+                ui.separator();
+                ui.label("Response:");
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false; 2])
+                    .show(ui, |ui| {
+                        ui.label(&self.response_body);
+                    });
             }
 
             ui.separator();
@@ -106,4 +171,38 @@ fn powered_by_egui_and_eframe(ui: &mut egui::Ui) {
         );
         ui.label(".");
     });
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn fetch_url(url: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let response = reqwest::blocking::get(url)?;
+    let body = response.text()?;
+    Ok(body)
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn fetch_url_async(url: &str) -> Result<String, String> {
+    let window = web_sys::window().expect("no global `window` exists");
+    let response = match JsFuture::from(window.fetch_with_str(url)).await {
+        Ok(res) => res,
+        Err(e) => return Err(format!("Fetch failed: {:?}", e)),
+    };
+
+    let response = match response.dyn_into::<web_sys::Response>() {
+        Ok(res) => res,
+        Err(e) => return Err(format!("Failed to convert to Response: {:?}", e)),
+    };
+
+    let text = match JsFuture::from(
+        response
+            .text()
+            .map_err(|e| format!("Failed to get text: {:?}", e))?,
+    )
+    .await
+    {
+        Ok(text) => text,
+        Err(e) => return Err(format!("Failed to read text: {:?}", e)),
+    };
+
+    Ok(text.as_string().unwrap_or_default())
 }
