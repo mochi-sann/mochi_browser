@@ -1910,12 +1910,10 @@ dependencies = [
  "eframe",
  "egui",
  "env_logger",
- "js-sys",
  "log",
  "reqwest",
  "serde",
  "tokio",
- "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
 ]

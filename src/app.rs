@@ -1,8 +1,3 @@
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::JsCast;
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen_futures::JsFuture;
-
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc;
 
@@ -36,8 +31,6 @@ impl Default for TemplateApp {
             loading: false,
             #[cfg(not(target_arch = "wasm32"))]
             receiver: None,
-            #[cfg(target_arch = "wasm32")]
-            loading_wasm: false,
         }
     }
 }
@@ -107,12 +100,17 @@ impl eframe::App for TemplateApp {
                 ui.label("URL: ");
                 ui.text_edit_singleline(&mut self.url_input);
                 if ui.button("Fetch").clicked() && !self.loading {
-                    self.loading = true;
+                    if self.url_input.trim().is_empty() {
+                        self.response_body = "Error: URL cannot be empty".to_string();
+                        return;
+                    }
+
                     self.response_body.clear();
-                    let url = self.url_input.clone();
 
                     #[cfg(not(target_arch = "wasm32"))]
                     {
+                        self.loading = true;
+                        let url = self.url_input.clone();
                         let (sender, receiver) = mpsc::channel();
                         self.receiver = Some(receiver);
 
@@ -124,8 +122,9 @@ impl eframe::App for TemplateApp {
 
                     #[cfg(target_arch = "wasm32")]
                     {
-                        self.response_body = "WASM fetch not implemented yet".to_string();
-                        self.loading = false;
+                        let _url = self.url_input.clone();
+                        drop(_url);
+                        self.response_body = "WASM fetching not fully implemented. Use native build for full functionality.".to_string();
                     }
                 }
             });
@@ -178,31 +177,4 @@ fn fetch_url(url: &str) -> Result<String, Box<dyn std::error::Error>> {
     let response = reqwest::blocking::get(url)?;
     let body = response.text()?;
     Ok(body)
-}
-
-#[cfg(target_arch = "wasm32")]
-async fn fetch_url_async(url: &str) -> Result<String, String> {
-    let window = web_sys::window().expect("no global `window` exists");
-    let response = match JsFuture::from(window.fetch_with_str(url)).await {
-        Ok(res) => res,
-        Err(e) => return Err(format!("Fetch failed: {:?}", e)),
-    };
-
-    let response = match response.dyn_into::<web_sys::Response>() {
-        Ok(res) => res,
-        Err(e) => return Err(format!("Failed to convert to Response: {:?}", e)),
-    };
-
-    let text = match JsFuture::from(
-        response
-            .text()
-            .map_err(|e| format!("Failed to get text: {:?}", e))?,
-    )
-    .await
-    {
-        Ok(text) => text,
-        Err(e) => return Err(format!("Failed to read text: {:?}", e)),
-    };
-
-    Ok(text.as_string().unwrap_or_default())
 }
