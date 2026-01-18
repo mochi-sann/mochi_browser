@@ -140,9 +140,13 @@ impl<'a> HtmlTokenizer<'a> {
     }
 
     fn parse_special_tag(&mut self) -> Option<Result<HtmlToken, TokenizeError>> {
-        if self.peek(0) == Some('-') && self.peek(1) == Some('-') && self.peek(2) == Some('-') {
-            self.advance_n(3);
-            self.parse_comment()
+        if self.peek(0) == Some('-') {
+            if self.peek(1) == Some('-') {
+                self.advance_n(2);
+                self.parse_comment()
+            } else {
+                Some(Err(TokenizeError::MalformedComment))
+            }
         } else {
             self.parse_doctype()
         }
@@ -169,6 +173,10 @@ impl<'a> HtmlTokenizer<'a> {
         loop {
             if let Some(c) = self.advance() {
                 if prev_dash_count >= 2 && c == '>' {
+                    if comment.ends_with("--") {
+                        let new_len = comment.len().saturating_sub(2);
+                        comment.truncate(new_len);
+                    }
                     return Some(Ok(HtmlToken::Comment(comment)));
                 }
                 comment.push(c);
