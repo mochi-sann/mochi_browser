@@ -1,5 +1,5 @@
 #[cfg(not(target_arch = "wasm32"))]
-use mochi_browser::http::{HttpResponse, fetch_url};
+use mochi_browser::http::{fetch_url, HttpResponse};
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]

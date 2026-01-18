@@ -257,7 +257,11 @@ impl<'a> HtmlTokenizer<'a> {
             }
         }
 
-        if name.is_empty() { None } else { Some(name) }
+        if name.is_empty() {
+            None
+        } else {
+            Some(name)
+        }
     }
 
     fn parse_text(&mut self) -> Option<Result<HtmlToken, TokenizeError>> {
@@ -337,7 +341,11 @@ impl<'a> HtmlTokenizer<'a> {
             }
         }
 
-        if name.is_empty() { None } else { Some(name) }
+        if name.is_empty() {
+            None
+        } else {
+            Some(name)
+        }
     }
 
     fn parse_attribute_value(&mut self) -> Result<String, TokenizeError> {
@@ -662,5 +670,41 @@ mod tests {
             Some(Err(TokenizeError::MalformedComment)) => {}
             _ => panic!("Expected MalformedComment error"),
         }
+    }
+
+    #[test]
+    fn test_parse_example_domain_html() {
+        let input = r#"<!doctype html><html lang="en"><head><title>Example Domain</title><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{background:#eee;width:60vw;margin:15vh auto;font-family:system-ui,sans-serif}h1{font-size:1.5em}div{opacity:0.8}a:link,a:visited{color:#348}</style><body><div><h1>Example Domain</h1><p>This domain is for use in documentation examples without needing permission. Avoid use in operations.<p><a href="https://iana.org/domains/example">Learn more</a></div></body></html>"#;
+        let tokenizer = HtmlTokenizer::new(input);
+        let tokens = tokenizer
+            .iter()
+            .collect::<Result<Vec<_>, _>>()
+            .expect("tokenize example.com HTML");
+
+        assert_eq!(
+            tokens.first(),
+            Some(&HtmlToken::Doctype("doctype html".to_string()))
+        );
+
+        let html_attrs = tokens.iter().find_map(|token| {
+            if let HtmlToken::StartTag {
+                name, attributes, ..
+            } = token
+            {
+                if name == "html" {
+                    return Some(attributes);
+                }
+            }
+            None
+        });
+        assert!(html_attrs.is_some());
+        assert!(html_attrs
+            .unwrap()
+            .iter()
+            .any(|(name, value)| name == "lang" && value == "en"));
+
+        assert!(tokens.iter().any(|token| {
+            matches!(token, HtmlToken::Text(text) if text.contains("Example Domain"))
+        }));
     }
 }
