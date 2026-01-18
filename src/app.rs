@@ -65,8 +65,8 @@ impl eframe::App for TemplateApp {
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(receiver) = &self.receiver {
-            if let Ok(result) = receiver.try_recv() {
+        if let Some(receiver) = &self.receiver
+            && let Ok(result) = receiver.try_recv() {
                 self.loading = false;
                 self.receiver = None;
                 match result {
@@ -75,12 +75,11 @@ impl eframe::App for TemplateApp {
                         self.response = Some(HttpResponse {
                             status: 0,
                             headers: vec![],
-                            body: format!("Error: {}", e),
+                            body: format!("Error: {e}"),
                         });
                     }
                 }
             }
-        }
 
         // Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
         // For inspiration and more examples, go to https://emilk.github.io/egui
@@ -115,7 +114,7 @@ impl eframe::App for TemplateApp {
                         self.response = Some(HttpResponse {
                             status: 0,
                             headers: vec![],
-                            body: "Error: URL cannot be empty".to_string(),
+                            body: "Error: URL cannot be empty".to_owned(),
                         });
                         return;
                     }
@@ -160,7 +159,7 @@ impl eframe::App for TemplateApp {
 
                 ui.label("Headers:");
                 for (name, value) in &response.headers {
-                    ui.label(format!("{}: {}", name, value));
+                    ui.label(format!("{name}: {value}"));
                 }
 
                 ui.separator();

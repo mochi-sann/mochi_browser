@@ -26,10 +26,10 @@ pub enum TokenizeError {
 impl fmt::Display for TokenizeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TokenizeError::UnexpectedEOF => write!(f, "Unexpected end of input"),
-            TokenizeError::InvalidTag => write!(f, "Invalid HTML tag"),
-            TokenizeError::InvalidAttribute => write!(f, "Invalid HTML attribute"),
-            TokenizeError::MalformedComment => write!(f, "Malformed HTML comment"),
+            Self::UnexpectedEOF => write!(f, "Unexpected end of input"),
+            Self::InvalidTag => write!(f, "Invalid HTML tag"),
+            Self::InvalidAttribute => write!(f, "Invalid HTML attribute"),
+            Self::MalformedComment => write!(f, "Malformed HTML comment"),
         }
     }
 }
@@ -95,7 +95,7 @@ impl<'a> HtmlTokenizerIter<'a> {
     }
 }
 
-impl<'a> Iterator for HtmlTokenizerIter<'a> {
+impl Iterator for HtmlTokenizerIter<'_> {
     type Item = Result<HtmlToken, TokenizeError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -117,7 +117,7 @@ impl<'a> HtmlTokenizer<'a> {
             return None;
         }
 
-        if let Some('<') = self.peek(0) {
+        if self.peek(0) == Some('<') {
             self.advance();
             return self.parse_tag();
         }
@@ -126,12 +126,12 @@ impl<'a> HtmlTokenizer<'a> {
     }
 
     fn parse_tag(&mut self) -> Option<Result<HtmlToken, TokenizeError>> {
-        if let Some('!') = self.peek(0) {
+        if self.peek(0) == Some('!') {
             self.advance();
             return self.parse_special_tag();
         }
 
-        if let Some('/') = self.peek(0) {
+        if self.peek(0) == Some('/') {
             self.advance();
             return self.parse_end_tag();
         }
@@ -281,11 +281,11 @@ impl<'a> HtmlTokenizer<'a> {
         loop {
             self.skip_whitespace();
 
-            if let Some('>') = self.peek(0) {
+            if self.peek(0) == Some('>') {
                 break;
             }
 
-            if let Some('/') = self.peek(0) {
+            if self.peek(0) == Some('/') {
                 break;
             }
 
@@ -300,10 +300,7 @@ impl<'a> HtmlTokenizer<'a> {
     }
 
     fn parse_attribute(&mut self) -> Option<Result<(String, String), TokenizeError>> {
-        let name = match self.parse_attribute_name() {
-            Some(n) => n,
-            None => return None,
-        };
+        let name = self.parse_attribute_name()?;
 
         self.skip_whitespace();
 
@@ -336,7 +333,7 @@ impl<'a> HtmlTokenizer<'a> {
 
     fn parse_attribute_value(&mut self) -> Option<Result<String, TokenizeError>> {
         let quote = match self.peek(0) {
-            Some('"') | Some('\'') => {
+            Some('"' | '\'') => {
                 let q = self.advance().unwrap();
                 Some(q)
             }
