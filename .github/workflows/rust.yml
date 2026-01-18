@@ -140,7 +140,7 @@ jobs:
 
     - name: Install OpenSSL (Linux)
       if: matrix.os == 'ubuntu-latest'
-      run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
+      run: sudo apt-get update && sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev pkg-config
 
     - uses: actions-rs/cargo@v1
       with:
