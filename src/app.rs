@@ -1,6 +1,11 @@
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc;
 
+use crate::http::HttpResponse;
+
+#[cfg(not(target_arch = "wasm32"))]
+use crate::http::fetch_url;
+
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
@@ -12,12 +17,12 @@ pub struct TemplateApp {
     value: f32,
 
     url_input: String,
-    response_body: String,
+    response: Option<HttpResponse>,
     loading: bool,
 
     #[serde(skip)]
     #[cfg(not(target_arch = "wasm32"))]
-    receiver: Option<mpsc::Receiver<Result<String, String>>>,
+    receiver: Option<mpsc::Receiver<Result<HttpResponse, String>>>,
 }
 
 impl Default for TemplateApp {
@@ -27,7 +32,7 @@ impl Default for TemplateApp {
             label: "Hello World!".to_owned(),
             value: 2.7,
             url_input: String::new(),
-            response_body: String::new(),
+            response: None,
             loading: false,
             #[cfg(not(target_arch = "wasm32"))]
             receiver: None,
@@ -65,8 +70,14 @@ impl eframe::App for TemplateApp {
                 self.loading = false;
                 self.receiver = None;
                 match result {
-                    Ok(body) => self.response_body = body,
-                    Err(e) => self.response_body = format!("Error: {}", e),
+                    Ok(response) => self.response = Some(response),
+                    Err(e) => {
+                        self.response = Some(HttpResponse {
+                            status: 0,
+                            headers: vec![],
+                            body: format!("Error: {}", e),
+                        });
+                    }
                 }
             }
         }
@@ -101,14 +112,17 @@ impl eframe::App for TemplateApp {
                 ui.text_edit_singleline(&mut self.url_input);
                 if ui.button("Fetch").clicked() && !self.loading {
                     if self.url_input.trim().is_empty() {
-                        self.response_body = "Error: URL cannot be empty".to_string();
+                        self.response = Some(HttpResponse {
+                            status: 0,
+                            headers: vec![],
+                            body: "Error: URL cannot be empty".to_string(),
+                        });
                         return;
                     }
 
-                    self.response_body.clear();
-
                     #[cfg(not(target_arch = "wasm32"))]
                     {
+                        self.response = None;
                         self.loading = true;
                         let url = self.url_input.clone();
                         let (sender, receiver) = mpsc::channel();
@@ -124,7 +138,11 @@ impl eframe::App for TemplateApp {
                     {
                         let _url = self.url_input.clone();
                         drop(_url);
-                        self.response_body = "WASM fetching not fully implemented. Use native build for full functionality.".to_string();
+                        self.response = Some(HttpResponse {
+                            status: 0,
+                            headers: vec![],
+                            body: "WASM fetching not fully implemented. Use native build for full functionality.".to_string(),
+                        });
                     }
                 }
             });
@@ -133,13 +151,25 @@ impl eframe::App for TemplateApp {
                 ui.spinner();
             }
 
-            if !self.response_body.is_empty() {
+            if let Some(response) = &self.response {
                 ui.separator();
-                ui.label("Response:");
+
+                ui.label(format!("Status: {}", response.status));
+
+                ui.separator();
+
+                ui.label("Headers:");
+                for (name, value) in &response.headers {
+                    ui.label(format!("{}: {}", name, value));
+                }
+
+                ui.separator();
+
+                ui.label("Body:");
                 egui::ScrollArea::vertical()
                     .auto_shrink([false; 2])
                     .show(ui, |ui| {
-                        ui.label(&self.response_body);
+                        ui.label(&response.body);
                     });
             }
 
@@ -170,11 +200,4 @@ fn powered_by_egui_and_eframe(ui: &mut egui::Ui) {
         );
         ui.label(".");
     });
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn fetch_url(url: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let response = reqwest::blocking::get(url)?;
-    let body = response.text()?;
-    Ok(body)
 }
